@@ -1,1 +1,4 @@
-tdx_dir = "E:\new_tdx"
+[tdx]
+local_path = "E:\\new_tdx"
+api_host = "124.71.163.43"
+api_port = 7709
