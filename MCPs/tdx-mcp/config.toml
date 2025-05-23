@@ -1,4 +1,6 @@
 [tdx]
-local_path = "E:\\new_tdx"
-api_host = "124.71.163.43"
+local_path = "E:\\new_tdx\\"
+api_host = "124.71.163.106"
 api_port = 7709
+[workspace]
+path = "C:\\mcp-workspace\\pytdx"
