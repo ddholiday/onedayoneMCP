@@ -2,6 +2,7 @@ from mcp.server.fastmcp import FastMCP
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.dml import MSO_LINE
 from pptx.dml.color import RGBColor
 import uuid
 import re
@@ -66,15 +67,16 @@ def give_hierarchy_positions(hierarchy):
     参考知乎《递归布局中的动态宽度计算》和论文《Adaptive Tree Layout with Dynamic Spacing》
     """
     # 布局参数配置（单位：像素）
+    # 从配置文件加载布局参数（单位：像素）
     LAYOUT_CONFIG = {
-        'canvas_width': 1200,
-        'margin': 50,
-        'horizontal_gap': 10,
-        'vertical_gap': 5,
+        'canvas_width': config['layout']['canvas_width'],
+        'margin': config['layout']['margin'],
+        'horizontal_gap': config['layout']['horizontal_gap'],
+        'vertical_gap': config['layout']['vertical_gap'],
         'level_height': {
-            1: 20,
-            2: 20,
-            3: 40
+            1: config['level_height']['1'],
+            2: config['level_height']['2'],
+            3: config['level_height']['3']
         }
     }
 
@@ -105,8 +107,14 @@ def give_hierarchy_positions(hierarchy):
                 max_child_y = max(max_child_y, child_y)
                 child_start_x += child['size']['width'] + LAYOUT_CONFIG['horizontal_gap']
             
-            # 调整父节点高度
-            node['total_height'] = max_child_y - start_y + LAYOUT_CONFIG['vertical_gap']
+            node['total_height'] = max_child_y - start_y - LAYOUT_CONFIG['vertical_gap']
+            # 为节点增加bounding_box
+            node['bounding_box'] = {
+                'x': node['position']['x']-2*3,
+                'y': node['position']['y']-2*3,
+                'width': node['size']['width']+4*3,
+                'height': node['total_height']+4*3 
+            }
             return max_child_y
             
         elif level == 2:
@@ -133,6 +141,16 @@ def give_hierarchy_positions(hierarchy):
                 else:
                     current_child_y = current_child_y + child['size']['height'] + LAYOUT_CONFIG['vertical_gap']
                     left = True 
+            
+            node['total_height'] = current_child_y - start_y - LAYOUT_CONFIG['vertical_gap']
+            # 为节点增加bounding_box
+            node['bounding_box'] = {
+                'x': node['position']['x']-2*2,
+                'y': node['position']['y']-2*2,
+                'width': node['size']['width']+4*2,
+                'height': node['total_height']+4*2
+            }
+            
             return current_child_y
             
         elif level == 3:
@@ -158,6 +176,9 @@ def give_hierarchy_positions(hierarchy):
             node['position'][key] = px_to_emu(node['position'][key])
         for dim in ['width', 'height']:
             node['size'][dim] = px_to_emu(node['size'][dim])
+        if 'bounding_box' in node:
+            for key in ['x', 'y', 'width', 'height']:
+                node['bounding_box'][key] = px_to_emu(node['bounding_box'][key])
         for child in node.get('children', []):
             convert_units(child)
     
@@ -179,19 +200,36 @@ def generate_pptx(hierarchy, style_rules=None):
     slide_layout = prs.slide_layouts[6]  # 空白版式
     slide = prs.slides.add_slide(slide_layout)
     
-    # 样式配置（参考知乎《架构图视觉规范》）
+    # 加载主题样式
+    theme_path = os.path.join(os.path.dirname(__file__), 'theme', f"{config['theme']['template']}.toml")
+    with open(theme_path, 'r') as f:
+        theme_config = toml.load(f)
+    
+    # 转换配置为程序可用的格式
     DEFAULT_STYLE = {
-        'shape_type': MSO_SHAPE.ROUNDED_RECTANGLE,
+        'shape_type': getattr(MSO_SHAPE, theme_config['shape']['type']),
         'level_styles': {
-            1: {'fill_color': RGBColor(79, 129, 189), 
-                'text_color': RGBColor(255,255,255),
-                'font_size': Pt(16), 'line_width': Pt(2.5)},
-            2: {'fill_color': RGBColor(155, 194, 230),
-                'text_color': RGBColor(0,0,0),
-                'font_size': Pt(14), 'line_width': Pt(1.5)},
-            3: {'fill_color': RGBColor(221, 235, 247),
-                'text_color': RGBColor(0,0,0),
-                'font_size': Pt(12), 'line_width': Pt(1)}
+            1: {
+                'fill_color': RGBColor(*theme_config['level_styles']['1']['fill_color']),
+                'text_color': RGBColor(*theme_config['level_styles']['1']['text_color']),
+                'font_size': Pt(theme_config['level_styles']['1']['font_size'])
+            },
+            2: {
+                'fill_color': RGBColor(*theme_config['level_styles']['2']['fill_color']),
+                'text_color': RGBColor(*theme_config['level_styles']['2']['text_color']),
+                'font_size': Pt(theme_config['level_styles']['2']['font_size'])
+            },
+            3: {
+                'fill_color': RGBColor(*theme_config['level_styles']['3']['fill_color']),
+                'text_color': RGBColor(*theme_config['level_styles']['3']['text_color']),
+                'font_size': Pt(theme_config['level_styles']['3']['font_size'])
+            }
+        },
+        'bounding_style': {
+            'shape_type': getattr(MSO_SHAPE, theme_config['bounding_style']['type']),
+            'color': RGBColor(*theme_config['bounding_style']['color']),
+            'line_width': Pt(theme_config['bounding_style']['line_width']),
+            'dash_style': getattr(MSO_LINE, theme_config['bounding_style']['dash_style'])
         }
     }
     
@@ -206,7 +244,6 @@ def generate_pptx(hierarchy, style_rules=None):
     def create_shape(node, level):
         """创建形状并设置样式"""
         style = DEFAULT_STYLE['level_styles'][level]
-        
         # 创建基础形状
         shape = slide.shapes.add_shape(
             DEFAULT_STYLE['shape_type'],
@@ -224,7 +261,7 @@ def generate_pptx(hierarchy, style_rules=None):
         # 边框样式
         line = shape.line
         line.color.rgb = RGBColor(0,0,0)
-        line.width = style['line_width']
+        line.fill.background()
         
         # 文字格式
         text_frame = shape.text_frame
@@ -237,18 +274,42 @@ def generate_pptx(hierarchy, style_rules=None):
         font.bold = (level == 1)
         
         return shape
+
+    def draw_bounding(bounding):
+        """绘制边界框"""
+        shape = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            bounding['x'],
+            bounding['y'],
+            bounding['width'],
+            bounding['height']
+        )
+        style = DEFAULT_STYLE['bounding_style']
+        line = shape.line
+        line.color.rgb = style['color']
+        line.width = style['line_width']
+        line.dash_style = style['dash_style']
+
+        fill = shape.fill
+        fill.background()
+        shape.shadow
+
+        return shape
     
     def draw_node(node, level=1):
         """递归绘制节点及子节点"""
+        if 'bounding_box' in node:
+            bounding_shape = draw_bounding(node['bounding_box'])
         # 创建当前节点形状
         shape = create_shape(node, level)
         node_shapes[node['id']] = shape
-        
+
         # 绘制子节点
         for child in node.get('children', []):
             child_shape = draw_node(child, level+1)
         
         return shape
+
     
     # 遍历根节点开始绘制
     for root in hierarchy.values():
@@ -274,7 +335,9 @@ def generate_architecture_diagram(md_input: str, style_spec: str = "") -> bytes:
     hierarchy = markdown_to_hierarchy(md_input)
     hierarchy = give_hierarchy_positions(hierarchy)
     prs = generate_pptx(hierarchy, style_spec)
-    
+    slide = prs.slides[0]
+    for shape in slide.shapes:
+        shape.shadow.inherit = False
     # 保存到按照时间戳命名的文件
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"architecture_{timestamp}.pptx"
@@ -321,4 +384,3 @@ if __name__ == "__main__":
 ### 图数据库集群'''
     # 生成PPTX并保存
     print(generate_architecture_diagram(test_md))
-

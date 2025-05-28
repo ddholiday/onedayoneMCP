@@ -1,0 +1,23 @@
+[shape]
+type = "ROUNDED_RECTANGLE"
+
+[level_styles.1]
+fill_color = [157, 195, 230]
+text_color = [0, 0, 0]
+font_size = 16
+
+[level_styles.2] 
+fill_color = [255, 255, 255]
+text_color = [0, 0, 0]
+font_size = 14
+
+[level_styles.3]
+fill_color = [248, 203, 173]
+text_color = [0, 0, 0] 
+font_size = 12
+
+[bounding_style]
+type = "RECTANGLE"
+color = [0, 0, 0]
+line_width = 1
+dash_style = "DASH_DOT"
